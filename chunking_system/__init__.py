@@ -280,6 +280,23 @@ def chunk_report(document: Document, config: ChunkingConfig,
     }
 
 
+def _overlap_words(words: list[str], overlap_tokens: int,
+                  est: TokenEstimator) -> int:
+    """The overlap in word units under the estimator: the largest w such
+    that the trailing w words estimate to at most overlap_tokens. Keeps
+    the overlap cap (a fraction of chunk size, in token units) honest for
+    any estimator, not just WordEstimator at factor 1.0."""
+    if not overlap_tokens or not words:
+        return 0
+    if isinstance(est, WordEstimator):
+        return min(len(words), int(overlap_tokens / est.factor))
+    w = 0
+    while (w < len(words) and est.estimate(
+            " ".join(words[-(w + 1):])) <= overlap_tokens):
+        w += 1
+    return w
+
+
 def _split_section(text: str, config: ChunkingConfig,
                    est: TokenEstimator) -> list[str]:
     """Split one section's text. Returns [] for empty text.
@@ -309,6 +326,7 @@ def _split_section(text: str, config: ChunkingConfig,
         while k < len(words) and est.estimate(
                 " ".join(words[:k + 1])) <= size:
             k += 1
+    overlap_words = _overlap_words(words, overlap, est)
     pieces: list[str] = []
     start, n = 0, len(words)
     while start < n:
@@ -316,7 +334,7 @@ def _split_section(text: str, config: ChunkingConfig,
         pieces.append(" ".join(words[start:end]))
         if end == n:
             break
-        start = end - overlap if overlap else end
+        start = end - overlap_words if overlap_words else end
     return _merge_undersized_tail(pieces, config, est)
 
 
@@ -352,6 +370,7 @@ def _recursive_split(text: str, words: list[str], config: ChunkingConfig,
         k = 1
         while k < n and est.estimate(" ".join(words[:k + 1])) <= size:
             k += 1
+    overlap_words = _overlap_words(words, overlap, est)
     cuts = {n}
     for sep in config.separators:
         if not sep or sep == " ":
@@ -368,7 +387,7 @@ def _recursive_split(text: str, words: list[str], config: ChunkingConfig,
         pieces.append(" ".join(words[start:end]))
         if end == n:
             break
-        start = end - overlap if overlap else end
+        start = end - overlap_words if overlap_words else end
     return _merge_undersized_tail(pieces, config, est)
 
 
